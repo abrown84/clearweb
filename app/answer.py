@@ -24,12 +24,12 @@ def gateway_reachable(timeout: float = 2.0) -> bool:
 def generate_answer(query: str, results: List[Dict[str, Any]], model: Optional[str] = None) -> Optional[str]:
     """Return a short grounded answer or None on any failure."""
     sources = [
-        f"[{i}] {r.get('title','')}\nURL: {r.get('url','')}\n{(r.get('content') or '')[:500]}"
+        f"[{i}] {(r.get('title') or '')[:80]} ({r.get('url','')[:80]})\n{(r.get('content') or '')[:450]}"
         for i, r in enumerate(results[:5], 1)
     ]
     prompt = (
         "Answer the user question using ONLY the sources below. "
-        "Be concise (2-5 sentences) and cite sources like [1]. If sources are insufficient, say so briefly.\n\n"
+        "2-4 sentences, cite like [1]; if sources are insufficient say so.\n\n"
         f"Question: {query}\n\nSources:\n" + "\n\n".join(sources)
     )
     headers = {"Content-Type": "application/json", "User-Agent": "Clearweb/1.1"}
@@ -41,7 +41,8 @@ def generate_answer(query: str, results: List[Dict[str, Any]], model: Optional[s
             {"role": "system", "content": "You are Clearweb. Answer only from provided sources. No tools."},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 400,
+        "max_tokens": 512,
+        "reasoning_effort": "minimal",  # thinking tokens count against the gateway's 512-token output cap
         "temperature": 0.2,
     }
     url = settings.gateway_url.rstrip("/") + "/chat/completions"
