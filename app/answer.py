@@ -21,10 +21,17 @@ def gateway_reachable(timeout: float = 2.0) -> bool:
         return False
 
 
+def select_answer_sources(results: List[Dict[str, Any]], top_n: int, min_relevance: float = 0.35) -> List[Dict[str, Any]]:
+    """Top-ranked, on-topic results only (results arrive already ranked)."""
+    picked = [r for r in results if r.get("relevance") is None or r.get("relevance", 0) >= min_relevance]
+    return (picked or results)[: max(1, top_n)]
+
+
 def generate_answer(query: str, results: List[Dict[str, Any]], model: Optional[str] = None) -> Optional[str]:
     """Return a short grounded answer or None on any failure."""
+    results = select_answer_sources(results, settings.answer_top_n)
     sources = [
-        f"[{i}] {(r.get('title') or '')[:80]} ({r.get('url','')[:80]})\n{(r.get('content') or '')[:450]}"
+        f"[{i}] {(r.get('title') or '')[:80]} ({r.get('url','')[:80]})\n{(r.get('content') or '')[:700]}"
         for i, r in enumerate(results[:5], 1)
     ]
     prompt = (
@@ -41,8 +48,8 @@ def generate_answer(query: str, results: List[Dict[str, Any]], model: Optional[s
             {"role": "system", "content": "You are Clearweb. Answer only from provided sources. No tools."},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 512,
-        "reasoning_effort": "minimal",  # thinking tokens count against the gateway's 512-token output cap
+        "max_tokens": 1024,
+        "reasoning_effort": "low",  # keep thinking tokens from eating the output budget
         "temperature": 0.2,
     }
     url = settings.gateway_url.rstrip("/") + "/chat/completions"

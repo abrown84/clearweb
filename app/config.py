@@ -56,6 +56,8 @@ class Settings:
     gateway_key: str = ""
     usage_retention_days: int = 35
     admin_rpm: int = 20
+    engine_timeout_sec: float = 8.0
+    answer_top_n: int = 4
     public_base_path: str = "/labs/clearweb"
     user_agent: str = "Clearweb/1.0 (+https://brwnindustries.com/labs/clearweb; research agent)"
 
@@ -87,6 +89,8 @@ class Settings:
             gateway_key=_env("CLEARWEB_GATEWAY_KEY"),
             usage_retention_days=_env_int("CLEARWEB_USAGE_RETENTION_DAYS", 35),
             admin_rpm=_env_int("CLEARWEB_ADMIN_RPM", 20),
+            engine_timeout_sec=_env_float("CLEARWEB_ENGINE_TIMEOUT", 8.0),
+            answer_top_n=_env_int("CLEARWEB_ANSWER_TOP_N", 4),
             public_base_path=_env("CLEARWEB_PUBLIC_BASE_PATH", "/labs/clearweb").rstrip("/") or "",
             user_agent=_env(
                 "CLEARWEB_USER_AGENT",

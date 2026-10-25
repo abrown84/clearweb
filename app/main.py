@@ -20,7 +20,9 @@ from .auth import AuthContext, authenticate, extract_raw_key, generate_api_key, 
 from .config import settings
 from .db import Database
 from .extract_engine import cache_key_for_url, extract_many
-from .search_engine import cache_key_for_search, multi_engine_search, relevant_chunks
+import asyncio
+
+from .search_engine import cache_key_for_search, multi_engine_search_async, relevant_chunks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("clearweb")
@@ -157,9 +159,9 @@ def ready(request: Request):
 
 
 @app.post("/search")
-def search(body: SearchBody, request: Request, authorization: Optional[str] = Header(default=None)):
+async def search(body: SearchBody, request: Request, authorization: Optional[str] = Header(default=None)):
     t0 = time.time()
-    auth = _auth(request, authorization, body.api_key)
+    auth = await asyncio.to_thread(_auth, request, authorization, body.api_key)
     query = (body.query or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -174,7 +176,7 @@ def search(body: SearchBody, request: Request, authorization: Optional[str] = He
     if cached is not None:
         # if answer requested but cache lacks it and we can generate, refresh answer only
         if include_answer and not cached.get("answer") and settings.answer_enabled:
-            ans = generate_answer(query, cached.get("results") or [], model=settings.answer_model)
+            ans = await asyncio.to_thread(generate_answer, query, cached.get("results") or [], settings.answer_model)
             if ans:
                 cached = {**cached, "answer": ans}
                 ttl = settings.news_cache_ttl_sec if topic == "news" else settings.search_cache_ttl_sec
@@ -184,7 +186,7 @@ def search(body: SearchBody, request: Request, authorization: Optional[str] = He
         cached = {**cached, "response_time": round(latency / 1000.0, 3)}
         return cached
 
-    results = multi_engine_search(query, limit=limit, settings=settings, topic=topic, days=body.days)
+    results = await multi_engine_search_async(query, limit=limit, settings=settings, topic=topic, days=body.days)
     enrich = topic == "news" or depth == "advanced"
     if enrich and results:
         take = 2 if topic == "news" else 3
@@ -193,7 +195,11 @@ def search(body: SearchBody, request: Request, authorization: Optional[str] = He
             for r in results[:take]
             if not (r.get("engine") == "exa" and (r.get("content") or "").strip())
         ]
-        extracted = extract_many(enrich_urls, settings) if enrich_urls else {"results": []}
+        if enrich_urls:
+            parts = await asyncio.gather(*(asyncio.to_thread(extract_many, [u], settings) for u in enrich_urls))
+            extracted = {"results": [r for p in parts for r in p["results"]]}
+        else:
+            extracted = {"results": []}
         by_url = {r["url"]: r.get("raw_content") or "" for r in extracted.get("results") or []}
         for r in results[:take]:
             if r.get("engine") == "exa" and (r.get("content") or "").strip():
@@ -207,7 +213,7 @@ def search(body: SearchBody, request: Request, authorization: Optional[str] = He
 
     answer = None
     if include_answer and settings.answer_enabled and results:
-        answer = generate_answer(query, results, model=settings.answer_model)
+        answer = await asyncio.to_thread(generate_answer, query, results, settings.answer_model)
 
     payload = {
         "query": query,
