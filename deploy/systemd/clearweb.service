@@ -1,0 +1,28 @@
+[Unit]
+Description=Clearweb multi-engine search API
+After=network.target one-gateway.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+OnFailure=clearweb-alert.service
+
+[Service]
+Type=simple
+User=clearweb
+Group=clearweb
+WorkingDirectory=/opt/clearweb
+EnvironmentFile=/etc/clearweb/env
+# Fail fast (and visibly) if the pinned interpreter or deps are broken, e.g. after an apt Python bump.
+ExecStartPre=/opt/clearweb/.venv/bin/python -c "import sys; assert sys.version_info[:2] == (3, 14), sys.version; import uvicorn, fastapi, httpx, trafilatura, ddgs"
+ExecStart=/opt/clearweb/.venv/bin/python /opt/clearweb/run.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/clearweb
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

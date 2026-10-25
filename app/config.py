@@ -51,8 +51,11 @@ class Settings:
     extract_max_chars: int = 50_000
     max_results_cap: int = 20
     answer_enabled: bool = True
-    answer_model: str = "gpt-5.6-terra"
-    answer_provider: str = "openai-codex"
+    answer_model: str = "gemini-3.8-flash"
+    gateway_url: str = "http://127.0.0.1:3070/v1"
+    gateway_key: str = ""
+    usage_retention_days: int = 35
+    admin_rpm: int = 20
     public_base_path: str = "/labs/clearweb"
     user_agent: str = "Clearweb/1.0 (+https://brwnindustries.com/labs/clearweb; research agent)"
 
@@ -79,8 +82,11 @@ class Settings:
             extract_max_chars=_env_int("CLEARWEB_EXTRACT_MAX_CHARS", 50_000),
             max_results_cap=_env_int("CLEARWEB_MAX_RESULTS", 20),
             answer_enabled=_env("CLEARWEB_ANSWER_ENABLED", "1") not in {"0", "false", "False", "no"},
-            answer_model=_env("CLEARWEB_ANSWER_MODEL", "gpt-5.6-terra"),
-            answer_provider=_env("CLEARWEB_ANSWER_PROVIDER", "openai-codex"),
+            answer_model=_env("CLEARWEB_ANSWER_MODEL", "gemini-3.8-flash"),
+            gateway_url=_env("CLEARWEB_GATEWAY_URL", "http://127.0.0.1:3070/v1"),
+            gateway_key=_env("CLEARWEB_GATEWAY_KEY"),
+            usage_retention_days=_env_int("CLEARWEB_USAGE_RETENTION_DAYS", 35),
+            admin_rpm=_env_int("CLEARWEB_ADMIN_RPM", 20),
             public_base_path=_env("CLEARWEB_PUBLIC_BASE_PATH", "/labs/clearweb").rstrip("/") or "",
             user_agent=_env(
                 "CLEARWEB_USER_AGENT",

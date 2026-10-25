@@ -234,3 +234,19 @@ class Database:
             "by_endpoint": [dict(r) for r in by_endpoint],
             "by_key": [dict(r) for r in by_key],
         }
+
+    def prune(self, usage_retention_days: int = 35) -> Dict[str, int]:
+        """Delete expired cache rows and usage events older than the retention window."""
+        now = time.time()
+        out: Dict[str, int] = {}
+        with self.conn() as conn:
+            for table in ("search_cache", "extract_cache"):
+                out[table] = conn.execute(f"DELETE FROM {table} WHERE expires_at < ?", (now,)).rowcount
+            out["usage_events"] = conn.execute(
+                "DELETE FROM usage_events WHERE created_at < ?", (now - usage_retention_days * 86400,)
+            ).rowcount
+        return out
+
+    def ping(self) -> bool:
+        with self.conn() as conn:
+            return conn.execute("SELECT 1").fetchone()[0] == 1

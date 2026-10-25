@@ -1,0 +1,6 @@
+[Unit]
+Description=Clearweb health / restart-loop watchdog
+
+[Service]
+Type=oneshot
+ExecStart=/opt/clearweb/scripts/watchdog.sh

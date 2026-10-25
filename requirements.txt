@@ -1,7 +1,9 @@
+# Direct dependencies (ranges). Exact versions live in requirements.lock.
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
-httpx>=0.27.0
+httpx[http2,brotli]>=0.27.0
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
 trafilatura>=1.12.0
+ddgs>=9.0.0
 duckduckgo-search>=6.0.0

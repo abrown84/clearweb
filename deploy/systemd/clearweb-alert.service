@@ -1,0 +1,6 @@
+[Unit]
+Description=Alert Agent Progress that clearweb failed (restart limit hit)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/clearweb/scripts/alert.sh clearweb-failed "clearweb.service entered failed state (StartLimitBurst hit) on %H"

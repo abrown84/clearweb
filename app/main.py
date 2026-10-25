@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import collections
+import contextlib
+import ipaddress
 import logging
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -10,7 +14,8 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from .answer import generate_answer
+from . import logmask
+from .answer import gateway_reachable, generate_answer
 from .auth import AuthContext, authenticate, extract_raw_key, generate_api_key, hash_key
 from .config import settings
 from .db import Database
@@ -19,9 +24,54 @@ from .search_engine import cache_key_for_search, multi_engine_search, relevant_c
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("clearweb")
+logmask.install()
 
 db = Database(settings.db_path)
-app = FastAPI(title="Clearweb", version="1.0.0", docs_url=None, redoc_url=None)
+@contextlib.asynccontextmanager
+async def _lifespan(_app):
+    threading.Thread(target=_prune_loop, name="clearweb-prune", daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Clearweb", version="1.1.0", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_lifespan)
+
+_admin_hits: Dict[str, collections.deque] = collections.defaultdict(collections.deque)
+_admin_lock = threading.Lock()
+
+
+def _is_local(request: Request) -> bool:
+    host = request.client.host if request.client else ""
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _admin_guard(request: Request) -> None:
+    """/admin is localhost-only (also enforced in nginx) and rate-limited per client."""
+    if not _is_local(request):
+        raise HTTPException(status_code=404, detail="Not Found")
+    ip = request.client.host if request.client else "?"
+    now = time.time()
+    with _admin_lock:
+        dq = _admin_hits[ip]
+        while dq and dq[0] < now - 60:
+            dq.popleft()
+        if len(dq) >= settings.admin_rpm:
+            raise HTTPException(status_code=429, detail="Admin rate limit exceeded")
+        dq.append(now)
+
+
+def _prune_loop() -> None:
+    while True:
+        try:
+            removed = db.prune(settings.usage_retention_days)
+            logger.info("prune: %s", removed)
+        except Exception as exc:  # pragma: no cover
+            logger.warning("prune failed: %s", exc)
+        time.sleep(3600)
+
+
 
 
 class SearchBody(BaseModel):
@@ -78,22 +128,32 @@ async def normalize_prefix(request: Request, call_next):
 def root():
     return {
         "name": "Clearweb",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "description": "Clean multi-engine web search + extract for AI agents (Tavily-compatible).",
-        "endpoints": ["/health", "/search", "/extract", "/admin/keys", "/admin/usage"],
+        "endpoints": ["/health", "/search", "/extract"],
     }
 
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "service": "clearweb",
-        "db": str(settings.db_path),
-        "brave": bool(settings.brave_api_key),
-        "exa": bool(settings.exa_api_key),
-        "answer": settings.answer_enabled,
-    }
+    """Public liveness probe: minimal on purpose."""
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready(request: Request):
+    """Private readiness probe (localhost only): DB, engines, answer gateway."""
+    if not _is_local(request):
+        raise HTTPException(status_code=404, detail="Not Found")
+    checks: Dict[str, Any] = {}
+    try:
+        checks["db"] = db.ping()
+    except Exception:
+        checks["db"] = False
+    checks["engines"] = {"duckduckgo": True, "exa": bool(settings.exa_api_key), "brave": bool(settings.brave_api_key)}
+    checks["answer_gateway"] = gateway_reachable() if settings.answer_enabled else None
+    ok = bool(checks["db"]) and (checks["answer_gateway"] is not False)
+    return JSONResponse(status_code=200 if ok else 503, content={"status": "ok" if ok else "degraded", "checks": checks})
 
 
 @app.post("/search")
@@ -240,6 +300,7 @@ def extract(body: ExtractBody, request: Request, authorization: Optional[str] = 
 
 @app.post("/admin/keys")
 def create_key(body: CreateKeyBody, request: Request, authorization: Optional[str] = Header(default=None)):
+    _admin_guard(request)
     auth = _auth(request, authorization, None, admin=True)
     if not auth.is_admin:
         raise HTTPException(status_code=403, detail="admin only")
@@ -263,6 +324,7 @@ def create_key(body: CreateKeyBody, request: Request, authorization: Optional[st
 
 @app.get("/admin/keys")
 def list_keys(request: Request, authorization: Optional[str] = Header(default=None)):
+    _admin_guard(request)
     auth = _auth(request, authorization, None, admin=True)
     if not auth.is_admin:
         raise HTTPException(status_code=403, detail="admin only")
@@ -271,6 +333,7 @@ def list_keys(request: Request, authorization: Optional[str] = Header(default=No
 
 @app.post("/admin/keys/{key_id}/revoke")
 def revoke_key(key_id: int, request: Request, authorization: Optional[str] = Header(default=None)):
+    _admin_guard(request)
     auth = _auth(request, authorization, None, admin=True)
     if not auth.is_admin:
         raise HTTPException(status_code=403, detail="admin only")
@@ -282,6 +345,7 @@ def revoke_key(key_id: int, request: Request, authorization: Optional[str] = Hea
 
 @app.get("/admin/usage")
 def usage(request: Request, hours: int = 24, authorization: Optional[str] = Header(default=None)):
+    _admin_guard(request)
     auth = _auth(request, authorization, None, admin=True)
     if not auth.is_admin:
         raise HTTPException(status_code=403, detail="admin only")

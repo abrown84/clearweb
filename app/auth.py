@@ -46,10 +46,7 @@ def extract_raw_key(
             return parts[0].strip()
     if body_api_key:
         return body_api_key.strip()
-    # query fallback for simple probes
-    q = request.query_params.get("api_key")
-    if q:
-        return q.strip()
+    # ?api_key= query support was removed: keys in URLs leak into proxy/access logs.
     return None
 
 
